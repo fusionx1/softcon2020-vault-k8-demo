@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-secret-app
+  labels:
+    app: k8s-secret-app
+spec:
+  replicas: 1
+  selector: 
+    matchLabels:
+      app: k8s-secret-app
+  template:
+    metadata: 
+      annotations:
+        consul.hashicorp.com/connect-inject: "true"
+        consul.hashicorp.com/connect-service-upstreams: "vault.default.svc:8200,mariadb:3306"
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/agent-inject-status: "update"
+        vault.hashicorp.com/tls-skip-verify: "true"  
+        vault.hashicorp.com/ca-cert: "/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        vault.hashicorp.com/agent-inject-secret-kv-config.ini: "lob_a/workshop/kv/secret-app-example"
+        vault.hashicorp.com/agent-inject-template-kv-config.ini: |
+          [DEFAULT]
+          LogLevel = DEBUG
+          {{ with secret "lob_a/workshop/kv/secret-app-example" -}}
+          static_kv_user ={{ .Data.username }} 
+          static_kv_apikey ={{ .Data.apikey }}
+          {{- end }}
+        vault.hashicorp.com/agent-inject-secret-config.ini: "lob_a/workshop/database/roles/workshop-app"
+        vault.hashicorp.com/agent-inject-template-config.ini: |
+          [DEFAULT]
+          LogLevel = DEBUG
+      
+          [DATABASE]
+          Address=127.0.0.1
+          Port=3306
+          {{ with secret "lob_a/workshop/database/creds/workshop-app" -}}
+          User={{ .Data.username }}
+          Password={{ .Data.password }}
+          {{- end }}
+          Database=app
+      
+          [VAULT]
+          Enabled=True
+          tls_skip_verify=True
+          DynamicDBCreds=False
+          DynamicDBCredsPath=lob_a/workshop/database/creds/workshop-app
+          Platform=kubernetes
+          ProtectRecords=False
+          Address=https://vault.default.svc:8200
+          Token=root
+      
+          [CONSUL]
+          DEBUG=False
+        vault.hashicorp.com/role: "example"
+      name: k8s-secret-app
+      labels:
+        app: k8s-secret-app
+    spec:
+      serviceAccountName: vault-auth
+      automountServiceAccountToken: true
+      containers:
+        - name: k8s-secret-app
+          image: nginx
+          ports:
+          - containerPort: 5000
+            protocol: TCP
